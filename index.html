@@ -33,7 +33,7 @@
   <!-- CONTAINER -->
   <div class="potree_container" style="position:absolute; width:100%; height:100%; left:0; top:0;">
     <div id="potree_render_area"
-         style="background-image:url('./build/potree/resources/images/la-raccolta-delle-acque-matera-palombaro-sasso-caveoso-1.jpg');">
+         style="background-image:url('');">
     </div>
     <div id="potree_sidebar_container"></div>
   </div>
@@ -47,9 +47,8 @@
     // =====================
     window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
 
-    // Startup performance: EDL off, then on after a few seconds
+    // EDL: OFF during initial load; will be enabled only when ALL clouds are loaded
     viewer.setEDLEnabled(false);
-    setTimeout(() => viewer.setEDLEnabled(true), 4000);
 
     viewer.setFOV(60);
     viewer.setPointBudget(10_000_000);
@@ -65,9 +64,9 @@
       Potree.maxNodesLoading = 2;
     }
 
-    // Conservative LOD (optional, helps stability on GitHub Pages)
+    // Min node size: set to 0 as requested
     if (typeof viewer.setMinNodeSize === "function") {
-      viewer.setMinNodeSize(80);
+      viewer.setMinNodeSize(0);
     }
 
     viewer.loadGUI(() => {
@@ -216,13 +215,26 @@
     }
 
     // =====================
-    // INITIAL FIT (fast + final)
+    // INITIAL FIT (fast + final) + "ALL LOADED" hook for EDL enable
     // =====================
     let bustoLoaded = false;
     let tilesLoaded = 0;
 
     let fitQuickDone = false;
     let fitFinalDone = false;
+    let edlEnabledAfterLoad = false;
+
+    function allCloudsLoaded(){
+      return bustoLoaded && tilesLoaded >= SASSOCORVARO.tiles;
+    }
+
+    function tryEnableEDLAfterLoad(){
+      if (edlEnabledAfterLoad) return;
+      if (!allCloudsLoaded()) return;
+
+      edlEnabledAfterLoad = true;
+      viewer.setEDLEnabled(true);
+    }
 
     function tryInitialFit(){
       // quick fit when busto + at least one tile are present
@@ -232,14 +244,17 @@
       }
 
       // final fit when everything is loaded
-      if (!fitFinalDone && bustoLoaded && tilesLoaded >= SASSOCORVARO.tiles) {
+      if (!fitFinalDone && allCloudsLoaded()) {
         fitFinalDone = true;
         viewer.fitToScreen();
       }
+
+      // enable EDL only after all clouds are loaded
+      tryEnableEDLAfterLoad();
     }
 
     // =====================
-    // DYNAMIC QUALITY WHILE NAVIGATING (optional but recommended)
+    // DYNAMIC QUALITY WHILE NAVIGATING (keeps EDL off while moving even after load)
     // =====================
     const QUALITY = {
       moving: { pointBudget: 2_500_000, edl: false },
@@ -248,11 +263,14 @@
 
     function applyQuality(q){
       viewer.setPointBudget(q.pointBudget);
-      viewer.setEDLEnabled(q.edl);
-    }
 
-    // after the initial startup phase, allow dynamic quality.
-    setTimeout(() => applyQuality(QUALITY.still), 4200);
+      // Only allow EDL=true after initial load is complete
+      if (q.edl) {
+        if (allCloudsLoaded()) viewer.setEDLEnabled(true);
+      } else {
+        viewer.setEDLEnabled(false);
+      }
+    }
 
     if (viewer.controls && typeof viewer.controls.addEventListener === "function") {
       viewer.controls.addEventListener("start", () => applyQuality(QUALITY.moving));
@@ -268,7 +286,7 @@
     // --- BUSTO (single)
     Potree.loadPointCloud(
       BUSTO.path,
-      "busto_alta_def",
+      "Busto di Francesco di Giorgio Martini",
       e => {
         const pc = e.pointcloud;
         const mat = applyMaterialDefaults(pc, BUSTO.materials);
@@ -300,7 +318,7 @@
 
       async function loadOne(idx){
         return new Promise(resolve => {
-          const name = `sassocorvaro_tile_${idx}`;
+          const name = `Rocca Ubaldinesca – tile ${String(idx).padStart(2, "0")}`;
           const path = `${SASSOCORVARO.base}/tile_${idx}/metadata.json`;
 
           Potree.loadPointCloud(path, name, e => {
