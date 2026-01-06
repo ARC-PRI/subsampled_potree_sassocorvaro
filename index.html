@@ -41,23 +41,26 @@
     import * as THREE from "./libs/three.js/build/three.module.js";
 
     // =====================
-    // LABELS (single source of truth)
+    // LABELS (names shown in Scene / Objects)
     // =====================
-    const SASSO_FOLDER_LABEL = "Rocca Ubaldinesca";
+    const SASSO_LABEL = "Rocca Ubaldinesca";
     const BUSTO_LABEL = "Busto di Francesco di Giorgio Martini";
-    const BUSTO_FOLDER_LABEL = BUSTO_LABEL;
 
     // =====================
     // VIEWER
     // =====================
     window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
 
-    // EDL: OFF during initial load; will be enabled only when ALL clouds are loaded
+    // Force EDL OFF during initial load
     viewer.setEDLEnabled(false);
 
     viewer.setFOV(60);
     viewer.setPointBudget(10_000_000);
     viewer.loadSettingsFromURL();
+
+    // loadSettingsFromURL() / GUI can re-apply EDL -> force OFF again until all clouds loaded
+    viewer.setEDLEnabled(false);
+
     viewer.setDescription("ROCCA UBALDINESCA");
 
     // Throttle streaming during navigation (if supported by this Potree build)
@@ -69,20 +72,18 @@
       Potree.maxNodesLoading = 2;
     }
 
-    // Min node size: set to 0 as requested
+    // Min node size: set to 0
     if (typeof viewer.setMinNodeSize === "function") {
       viewer.setMinNodeSize(0);
     }
 
-    let guiLoaded = false;
-
+    // NOTE: removed viewer.setLanguage(...) because you reported language switching is frozen.
+    // Keeping GUI load and Appearance panel opening.
     viewer.loadGUI(() => {
-      guiLoaded = true;
-      viewer.setLanguage("en");
       $("#menu_appearance").next().show();
 
-      // If clouds are already loaded by the time GUI is ready, group immediately.
-      tryGroupPointCloudsTreeAfterLoad();
+      // GUI may restore settings; keep EDL OFF until everything is loaded
+      if (!allCloudsLoaded()) viewer.setEDLEnabled(false);
     });
 
     // =====================
@@ -226,69 +227,7 @@
     }
 
     // =====================
-    // GROUP POINT CLOUDS IN TREE (ONLY AFTER ALL CLOUDS ARE LOADED)
-    // =====================
-    let didGroupTree = false;
-
-    function groupPointCloudsInTreeAfterLoad(){
-      if (didGroupTree) return;
-
-      const $treeEl = $("#jstree_scene");
-      if ($treeEl.length === 0) return;
-
-      const tree = $treeEl.jstree(true);
-      if (!tree) return;
-
-      // find "Point Clouds"
-      const flatAll = tree.get_json("#", { flat: true }) || [];
-      const pcRootId = flatAll.find(n => n && n.text === "Point Clouds")?.id;
-      if (!pcRootId) return;
-
-      // ensure folders exist under "Point Clouds"
-      const children = tree.get_children_dom(pcRootId).toArray().map(el => tree.get_node(el));
-      let sFolderId = children.find(n => n.text === SASSO_FOLDER_LABEL)?.id;
-      let bFolderId = children.find(n => n.text === BUSTO_FOLDER_LABEL)?.id;
-
-      if (!sFolderId) {
-        sFolderId = tree.create_node(pcRootId, { text: SASSO_FOLDER_LABEL, icon: "jstree-folder" }, "last");
-      }
-      if (!bFolderId) {
-        bFolderId = tree.create_node(pcRootId, { text: BUSTO_FOLDER_LABEL, icon: "jstree-folder" }, "last");
-      }
-      if (!sFolderId || !bFolderId) return;
-
-      // move nodes into folders
-      const flat = tree.get_json("#", { flat: true }) || [];
-      for (const n of flat){
-        if (!n || !n.text) continue;
-
-        // all tiles have label: "Rocca Ubaldinesca – tile XX"
-        if (n.text.startsWith(SASSO_FOLDER_LABEL + " – tile")) {
-          if (n.parent !== sFolderId) tree.move_node(n.id, sFolderId, "last");
-        }
-
-        // busto label
-        if (n.text === BUSTO_LABEL) {
-          if (n.parent !== bFolderId) tree.move_node(n.id, bFolderId, "last");
-        }
-      }
-
-      tree.open_node(pcRootId);
-      tree.open_node(sFolderId);
-      tree.open_node(bFolderId);
-
-      didGroupTree = true;
-    }
-
-    function tryGroupPointCloudsTreeAfterLoad(){
-      // group only if GUI + all point clouds loaded
-      if (!guiLoaded) return;
-      if (!allCloudsLoaded()) return;
-      groupPointCloudsInTreeAfterLoad();
-    }
-
-    // =====================
-    // INITIAL FIT (fast + final) + "ALL LOADED" hook for EDL enable
+    // INITIAL FIT + EDL enable only after ALL clouds loaded
     // =====================
     let bustoLoaded = false;
     let tilesLoaded = 0;
@@ -322,30 +261,21 @@
         viewer.fitToScreen();
       }
 
-      // enable EDL only after all clouds are loaded
+      // Enable EDL only after all clouds are loaded (one-time)
       tryEnableEDLAfterLoad();
-
-      // group tree only after all clouds are loaded (and GUI is ready)
-      tryGroupPointCloudsTreeAfterLoad();
     }
 
     // =====================
-    // DYNAMIC QUALITY WHILE NAVIGATING (keeps EDL off while moving even after load)
+    // DYNAMIC QUALITY WHILE NAVIGATING (DO NOT touch EDL here)
     // =====================
     const QUALITY = {
-      moving: { pointBudget: 2_500_000, edl: false },
-      still:  { pointBudget: 10_000_000, edl: true  }
+      moving: { pointBudget: 2_500_000 },
+      still:  { pointBudget: 10_000_000 }
     };
 
     function applyQuality(q){
       viewer.setPointBudget(q.pointBudget);
-
-      // Only allow EDL=true after initial load is complete
-      if (q.edl) {
-        if (allCloudsLoaded()) viewer.setEDLEnabled(true);
-      } else {
-        viewer.setEDLEnabled(false);
-      }
+      // IMPORTANT: do NOT set EDL here. If user turns EDL off, it stays off.
     }
 
     if (viewer.controls && typeof viewer.controls.addEventListener === "function") {
@@ -394,7 +324,7 @@
 
       async function loadOne(idx){
         return new Promise(resolve => {
-          const name = `${SASSO_FOLDER_LABEL} – tile ${String(idx).padStart(2, "0")}`;
+          const name = `${SASSO_LABEL} – tile ${String(idx).padStart(2, "0")}`;
           const path = `${SASSOCORVARO.base}/tile_${idx}/metadata.json`;
 
           Potree.loadPointCloud(path, name, e => {
@@ -409,7 +339,7 @@
               didInitSassoSlider = true;
               addPointSizeSliderForGroup({
                 id: "ap_pointsize_sassocorvaro",
-                title: "Point size (Rocca Ubaldinesca)",
+                title: `Point size (${SASSO_LABEL})`,
                 materialsRef: SASSOCORVARO.materials,
                 initialMaterial: mat
               });
@@ -417,7 +347,6 @@
 
             tilesLoaded++;
             tryInitialFit();
-
             resolve();
           });
         });
