@@ -160,26 +160,85 @@
     }
 
     // =====================
-    // LOAD POINT CLOUD
-    // =====================
-    Potree.loadPointCloud(
-      "./pointclouds/sassocorvaro/metadata.json",
-      "sassocorvaro",
-      e => {
-        const pc = e.pointcloud;
-        const mat = pc.material;
+// LOAD POINT CLOUDS
+// =====================
 
-        mat.activeAttributeName = "rgba";
-        mat.size = 2.0;
-        mat.minSize = 2;
-        mat.pointSizeType = Potree.PointSizeType.FIXED;
+// --- 1) SASSOCORVARO (TILED)
+const SASSOCORVARO = {
+  base: "./pointclouds/sassocorvaro",
+  tiles: 20,
+  pcs: [],
+  visible: true
+};
 
-        viewer.scene.addPointCloud(pc);
-        viewer.fitToScreen();
+// --- 2) BUSTO_ALTA_DEF (SINGLE)
+const BUSTO = {
+  path: "./pointclouds/busto/metadata.json",
+  pc: null,
+  visible: false
+};
 
-        addPointSizeSliderToAppearance(mat);
-      }
-    );
+let didBindPointSizeUI = false;
+
+function applyMaterialDefaults(pc){
+  const mat = pc.material;
+  mat.activeAttributeName = "rgba";
+  mat.size = 2.0;
+  mat.minSize = 2;
+  mat.pointSizeType = Potree.PointSizeType.FIXED;
+  return mat;
+}
+
+// ---- Carica nuvola tiled (20 tile)
+for (let i = 1; i <= SASSOCORVARO.tiles; i++){
+  const name = `sassocorvaro_tile_${i}`;
+  const path = `${SASSOCORVARO.base}/tile_${i}/metadata.json`;
+
+  Potree.loadPointCloud(path, name, e => {
+    const pc = e.pointcloud;
+    const mat = applyMaterialDefaults(pc);
+
+    pc.visible = SASSOCORVARO.visible;
+    viewer.scene.addPointCloud(pc);
+    SASSOCORVARO.pcs.push(pc);
+
+    if (!didBindPointSizeUI){
+      didBindPointSizeUI = true;
+      viewer.fitToScreen();
+      addPointSizeSliderToAppearance(mat);
+    }
+  });
+}
+
+// ---- Carica busto alta definizione (singola nuvola)
+Potree.loadPointCloud(
+  BUSTO.path,
+  "busto_alta_def",
+  e => {
+    const pc = e.pointcloud;
+    applyMaterialDefaults(pc);
+
+    pc.visible = BUSTO.visible;
+    viewer.scene.addPointCloud(pc);
+    BUSTO.pc = pc;
+  }
+);
+
+// comandi rapidi da console
+window.showSassocorvaro = () => {
+  SASSOCORVARO.pcs.forEach(pc => pc.visible = true);
+  if (BUSTO.pc) BUSTO.pc.visible = false;
+};
+
+window.showBusto = () => {
+  SASSOCORVARO.pcs.forEach(pc => pc.visible = false);
+  if (BUSTO.pc) BUSTO.pc.visible = true;
+};
+
+window.showBoth = () => {
+  SASSOCORVARO.pcs.forEach(pc => pc.visible = true);
+  if (BUSTO.pc) BUSTO.pc.visible = true;
+};
   </script>
 
 </body>
