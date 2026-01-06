@@ -1,3 +1,4 @@
+html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -73,7 +74,9 @@
     viewer.loadGUI(() => {
       viewer.setLanguage("en");
       $("#menu_appearance").next().show();
-      groupPointCloudsInTree();
+
+      // IMPORTANT: keep grouping stable while Potree is still updating the tree
+      scheduleTreeGrouping();
     });
 
     // =====================
@@ -217,68 +220,68 @@
     }
 
     // =====================
-    // GROUPING IN LEFT TREE (Point Clouds folders) + custom labels
+    // TREE GROUPING (robust + persistent while tiles load)
     // =====================
-    function groupPointCloudsInTree(){
-      const tryGroup = () => {
-        const LABEL_SASSOCORVARO = "Rocca Ubaldinesca";
-        const LABEL_BUSTO = "Busto di Francesco di Giorgio Martini";
+    function groupPointCloudsInTreeOnce(){
+      const LABEL_SASSO = "Rocca Ubaldinesca";
+      const LABEL_BUSTO = "Busto di Francesco di Giorgio Martini";
 
-        const $treeEl = $("#jstree_scene");
-        if ($treeEl.length === 0) {
-          setTimeout(tryGroup, 300);
-          return;
+      const $treeEl = $("#jstree_scene");
+      if ($treeEl.length === 0) return;
+
+      const tree = $treeEl.jstree(true);
+      if (!tree) return;
+
+      const flatAll = tree.get_json("#", { flat: true }) || [];
+      const pcRootId = flatAll.find(n => n && n.text === "Point Clouds")?.id;
+      if (!pcRootId) return;
+
+      // Ensure folders exist
+      const children = tree.get_children_dom(pcRootId).toArray().map(el => tree.get_node(el));
+      let sFolderId = children.find(n => n.text === LABEL_SASSO)?.id;
+      let bFolderId = children.find(n => n.text === LABEL_BUSTO)?.id;
+
+      if (!sFolderId) {
+        sFolderId = tree.create_node(pcRootId, { text: LABEL_SASSO, icon: "jstree-folder" }, "last");
+      }
+      if (!bFolderId) {
+        bFolderId = tree.create_node(pcRootId, { text: LABEL_BUSTO, icon: "jstree-folder" }, "last");
+      }
+      if (!sFolderId || !bFolderId) return;
+
+      const flat = tree.get_json("#", { flat: true }) || [];
+
+      for (const n of flat){
+        if (!n || !n.text) continue;
+
+        if (n.text.startsWith("sassocorvaro_tile_")) {
+          if (n.parent !== sFolderId) tree.move_node(n.id, sFolderId, "last");
         }
-        const tree = $treeEl.jstree(true);
-        if (!tree) {
-          setTimeout(tryGroup, 300);
-          return;
+
+        if (n.text === "busto_alta_def") {
+          if (n.parent !== bFolderId) tree.move_node(n.id, bFolderId, "last");
         }
+      }
 
-        const flatAll = tree.get_json("#", { flat: true });
-        const pcRootId = flatAll.find(n => n.text === "Point Clouds")?.id;
+      tree.open_node(pcRootId);
+      tree.open_node(sFolderId);
+      tree.open_node(bFolderId);
+    }
 
-        if (!pcRootId) {
-          setTimeout(tryGroup, 300);
-          return;
+    function scheduleTreeGrouping(){
+      // Reapply grouping while Potree is still updating the tree (batch loading)
+      const start = Date.now();
+      const durationMs = 20000;  // increase if your connection is slow
+      const intervalMs = 500;
+
+      const timer = setInterval(() => {
+        groupPointCloudsInTreeOnce();
+
+        if (Date.now() - start > durationMs) {
+          clearInterval(timer);
+          groupPointCloudsInTreeOnce(); // last pass
         }
-
-        const existing = tree.get_children_dom(pcRootId).toArray()
-          .map(el => tree.get_node(el).text);
-
-        const folderS = existing.includes(LABEL_SASSOCORVARO)
-          ? null
-          : tree.create_node(pcRootId, { text: LABEL_SASSOCORVARO, icon: "jstree-folder" });
-
-        const folderB = existing.includes(LABEL_BUSTO)
-          ? null
-          : tree.create_node(pcRootId, { text: LABEL_BUSTO, icon: "jstree-folder" });
-
-        const children = tree.get_children_dom(pcRootId).toArray().map(el => tree.get_node(el));
-        const sFolderId = children.find(n => n.text === LABEL_SASSOCORVARO)?.id || folderS;
-        const bFolderId = children.find(n => n.text === LABEL_BUSTO)?.id || folderB;
-
-        if (!sFolderId || !bFolderId) return;
-
-        const flat = tree.get_json("#", { flat: true });
-
-        flat.forEach(n => {
-          if (!n || !n.text) return;
-
-          if (n.text.startsWith("sassocorvaro_tile_") && n.parent === pcRootId) {
-            tree.move_node(n.id, sFolderId);
-          }
-          if (n.text === "busto_alta_def" && n.parent === pcRootId) {
-            tree.move_node(n.id, bFolderId);
-          }
-        });
-
-        tree.open_node(pcRootId);
-        tree.open_node(sFolderId);
-        tree.open_node(bFolderId);
-      };
-
-      tryGroup();
+      }, intervalMs);
     }
 
     // =====================
@@ -318,7 +321,6 @@
     }
 
     // after the initial startup phase, allow dynamic quality.
-    // (EDL is already turned on after 4s; we keep this for movement handling)
     setTimeout(() => applyQuality(QUALITY.still), 4200);
 
     if (viewer.controls && typeof viewer.controls.addEventListener === "function") {
@@ -356,7 +358,9 @@
 
         bustoLoaded = true;
         tryInitialFit();
-        groupPointCloudsInTree();
+
+        // Apply grouping repeatedly while the tree keeps changing
+        scheduleTreeGrouping();
       }
     );
 
@@ -391,7 +395,9 @@
 
             tilesLoaded++;
             tryInitialFit();
-            groupPointCloudsInTree();
+
+            // Apply grouping repeatedly while the tree keeps changing
+            scheduleTreeGrouping();
 
             resolve();
           });
@@ -409,7 +415,10 @@
     }
 
     // delay tiles a bit to get the page responsive faster
-    setTimeout(() => loadSassocorvaroTilesWithLimit(3), 1500);
+    setTimeout(() => {
+      loadSassocorvaroTilesWithLimit(3);
+      scheduleTreeGrouping();
+    }, 1500);
 
     // =====================
     // Optional helpers
