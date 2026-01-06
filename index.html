@@ -16,236 +16,281 @@
 
 <body>
 
-<!-- LIBS -->
-<script src="./libs/jquery/jquery-3.1.1.min.js"></script>
-<script src="./libs/jquery-ui/jquery-ui.min.js"></script>
-<script src="./libs/spectrum/spectrum.js"></script>
-<script src="./libs/other/BinaryHeap.js"></script>
-<script src="./libs/tween/tween.min.js"></script>
-<script src="./libs/d3/d3.js"></script>
-<script src="./libs/proj4/proj4.js"></script>
-<script src="./libs/openlayers3/ol.js"></script>
-<script src="./libs/i18next/i18next.js"></script>
-<script src="./libs/jstree/jstree.js"></script>
-<script src="./build/potree/potree.js"></script>
-<script src="./libs/plasio/js/laslaz.js"></script>
+  <!-- LIBS -->
+  <script src="./libs/jquery/jquery-3.1.1.min.js"></script>
+  <script src="./libs/jquery-ui/jquery-ui.min.js"></script>
+  <script src="./libs/spectrum/spectrum.js"></script>
+  <script src="./libs/other/BinaryHeap.js"></script>
+  <script src="./libs/tween/tween.min.js"></script>
+  <script src="./libs/d3/d3.js"></script>
+  <script src="./libs/proj4/proj4.js"></script>
+  <script src="./libs/openlayers3/ol.js"></script>
+  <script src="./libs/i18next/i18next.js"></script>
+  <script src="./libs/jstree/jstree.js"></script>
+  <script src="./build/potree/potree.js"></script>
+  <script src="./libs/plasio/js/laslaz.js"></script>
 
-<!-- CONTAINER -->
-<div class="potree_container" style="position:absolute; width:100%; height:100%; left:0; top:0;">
-  <div id="potree_render_area"
-       style="background-image:url('./build/potree/resources/images/la-raccolta-delle-acque-matera-palombaro-sasso-caveoso-1.jpg');">
-  </div>
-  <div id="potree_sidebar_container"></div>
-</div>
-
-<!-- SCRIPT -->
-<script type="module">
-import * as THREE from "./libs/three.js/build/three.module.js";
-
-// =====================
-// VIEWER
-// =====================
-window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
-
-viewer.setEDLEnabled(true);
-viewer.setFOV(60);
-viewer.setPointBudget(10_000_000);
-viewer.loadSettingsFromURL();
-viewer.setDescription("ROCCA UBALDINESCA");
-
-viewer.loadGUI(() => {
-  viewer.setLanguage("en");
-  $("#menu_appearance").next().show();
-});
-
-// =====================
-// GLOBAL MATERIAL REGISTRY
-// =====================
-const ALL_MATERIALS = [];
-
-// =====================
-// POINT SIZE UI (GLOBAL)
-// =====================
-function addPointSizeSliderToAppearance(initialMaterial){
-
-  const $appearancePanel = $("#menu_appearance").next();
-  if ($appearancePanel.length === 0) {
-    setTimeout(() => addPointSizeSliderToAppearance(initialMaterial), 200);
-    return;
-  }
-
-  $("#ap_pointsize_block").remove();
-
-  const typeToValue = t =>
-    t === Potree.PointSizeType.ATTENUATED ? "ATTENUATED" :
-    t === Potree.PointSizeType.ADAPTIVE   ? "ADAPTIVE"   : "FIXED";
-
-  const valueToType = v =>
-    v === "ATTENUATED" ? Potree.PointSizeType.ATTENUATED :
-    v === "ADAPTIVE"   ? Potree.PointSizeType.ADAPTIVE   :
-                         Potree.PointSizeType.FIXED;
-
-  const block = $(`
-    <div class="pv-menu-list" id="ap_pointsize_block">
-      <div class="pv-menu-entry">
-
-        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-          <span>Point size</span>
-          <span id="ap_pointsize_val">${initialMaterial.size.toFixed(1)}</span>
-        </div>
-
-        <div id="ap_pointsize_slider" style="margin:0 4px;"></div>
-
-        <div id="ap_pointsize_note"
-             style="margin-top:6px; font-size:11px; color:#999; display:none;">
-          controlled by distance
-        </div>
-
-        <div style="display:flex; justify-content:space-between; margin-top:8px;">
-          <span>Size mode</span>
-          <select id="ap_pointsize_type" style="width:140px;">
-            <option value="FIXED">Fixed</option>
-            <option value="ATTENUATED">Attenuated</option>
-            <option value="ADAPTIVE">Adaptive</option>
-          </select>
-        </div>
-
-      </div>
+  <!-- CONTAINER -->
+  <div class="potree_container" style="position:absolute; width:100%; height:100%; left:0; top:0;">
+    <div id="potree_render_area"
+         style="background-image:url('./build/potree/resources/images/la-raccolta-delle-acque-matera-palombaro-sasso-caveoso-1.jpg');">
     </div>
-  `);
+    <div id="potree_sidebar_container"></div>
+  </div>
 
-  const $fovBlock = $appearancePanel.find(".pv-menu-list").first();
-  $fovBlock.after(block);
+  <!-- SCRIPT -->
+  <script type="module">
+    import * as THREE from "./libs/three.js/build/three.module.js";
 
-  $("#ap_pointsize_type").val(typeToValue(initialMaterial.pointSizeType));
+    // =====================
+    // VIEWER
+    // =====================
+    window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
 
-  $("#ap_pointsize_slider").slider({
-    min: 0.5,
-    max: 10,
-    step: 0.1,
-    value: initialMaterial.size,
-    slide: (e, ui) => {
-      ALL_MATERIALS.forEach(m => m.size = ui.value);
-      $("#ap_pointsize_val").text(ui.value.toFixed(1));
+    viewer.setEDLEnabled(true);
+    viewer.setFOV(60);
+    viewer.setPointBudget(10_000_000);
+    viewer.loadSettingsFromURL();
+    viewer.setDescription("ROCCA UBALDINESCA");
+
+    viewer.loadGUI(() => {
+      viewer.setLanguage("en");
+      $("#menu_appearance").next().show();
+    });
+
+    // =====================
+    // MATERIAL GROUPS (separate controls)
+    // =====================
+    const MATERIALS = {
+      busto: [],
+      sassocorvaro: []
+    };
+
+    // =====================
+    // POINT SIZE UI (PER CLOUD)
+    // - aggiunge 2 controlli separati in Appearance
+    // - NON rimuove i controlli Potree esistenti (shape, rgb/scalar, ecc.)
+    // =====================
+    function addPointSizeSliderForGroup(opts){
+      // opts: { id, title, materialsRef, initialMaterial, defaultMode }
+      const { id, title, materialsRef, initialMaterial } = opts;
+
+      const $appearancePanel = $("#menu_appearance").next();
+      if ($appearancePanel.length === 0) {
+        setTimeout(() => addPointSizeSliderForGroup(opts), 200);
+        return;
+      }
+
+      // rimuove SOLO il blocco con lo stesso id (se già esiste)
+      $(`#${id}`).remove();
+
+      const typeToValue = t =>
+        t === Potree.PointSizeType.ATTENUATED ? "ATTENUATED" :
+        t === Potree.PointSizeType.ADAPTIVE   ? "ADAPTIVE"   : "FIXED";
+
+      const valueToType = v =>
+        v === "ATTENUATED" ? Potree.PointSizeType.ATTENUATED :
+        v === "ADAPTIVE"   ? Potree.PointSizeType.ADAPTIVE   :
+                             Potree.PointSizeType.FIXED;
+
+      const block = $(`
+        <div class="pv-menu-list" id="${id}">
+          <div class="pv-menu-entry">
+
+            <div style="font-weight:600; margin-bottom:8px;">${title}</div>
+
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+              <span>Point size</span>
+              <span id="${id}_val">${initialMaterial.size.toFixed(1)}</span>
+            </div>
+
+            <div id="${id}_slider" style="margin:0 4px;"></div>
+
+            <div id="${id}_note"
+                 style="margin-top:6px; font-size:11px; color:#999; display:none;">
+              controlled by distance
+            </div>
+
+            <div style="display:flex; justify-content:space-between; margin-top:8px;">
+              <span>Size mode</span>
+              <select id="${id}_type" style="width:140px;">
+                <option value="FIXED">Fixed</option>
+                <option value="ATTENUATED">Attenuated</option>
+                <option value="ADAPTIVE">Adaptive</option>
+              </select>
+            </div>
+
+          </div>
+        </div>
+      `);
+
+      // Inserisce il blocco subito dopo il primo blocco di Appearance
+      const $firstBlock = $appearancePanel.find(".pv-menu-list").first();
+      $firstBlock.after(block);
+
+      // init select
+      $(`#${id}_type`).val(typeToValue(initialMaterial.pointSizeType));
+
+      // init slider
+      $(`#${id}_slider`).slider({
+        min: 0.5,
+        max: 10,
+        step: 0.1,
+        value: initialMaterial.size,
+        slide: (e, ui) => {
+          materialsRef.forEach(m => { m.size = ui.value; });
+          $(`#${id}_val`).text(ui.value.toFixed(1));
+        }
+      });
+
+      function applyMode(mode){
+        const $slider = $(`#${id}_slider`);
+        const $note = $(`#${id}_note`);
+
+        const t = valueToType(mode);
+        materialsRef.forEach(m => { m.pointSizeType = t; });
+
+        if (mode === "ATTENUATED") {
+          $slider.slider("disable");
+          $note.show();
+          return;
+        }
+
+        $slider.slider("enable");
+        $note.hide();
+
+        if (mode === "ADAPTIVE") {
+          $slider.slider("option", "max", 3);
+          if ($slider.slider("value") > 3) {
+            $slider.slider("value", 3);
+            materialsRef.forEach(m => { m.size = 3; });
+            $(`#${id}_val`).text("3.0");
+          }
+        } else {
+          $slider.slider("option", "max", 10);
+        }
+      }
+
+      // initial apply
+      applyMode(typeToValue(initialMaterial.pointSizeType));
+
+      // on change
+      $(`#${id}_type`).on("change", function(){
+        applyMode($(this).val());
+      });
     }
-  });
 
-  function applyMode(mode){
-    const $slider = $("#ap_pointsize_slider");
-    const $note = $("#ap_pointsize_note");
+    // =====================
+    // MATERIAL DEFAULTS
+    // =====================
+    function applyMaterialDefaults(pc, groupKey){
+      const mat = pc.material;
 
-    ALL_MATERIALS.forEach(m => m.pointSizeType = valueToType(mode));
+      // default "safe"; user can still change shape/attributes from Potree UI
+      mat.activeAttributeName = "rgba";
+      mat.size = 2.0;
+      mat.minSize = 2;
+      mat.pointSizeType = Potree.PointSizeType.FIXED;
 
-    if (mode === "ATTENUATED") {
-      $slider.slider("disable");
-      $note.show();
-      return;
+      MATERIALS[groupKey].push(mat);
+      return mat;
     }
 
-    $slider.slider("enable");
-    $note.hide();
+    // =====================
+    // LOAD POINT CLOUDS (folder structure requested)
+    // =====================
 
-    if (mode === "ADAPTIVE") {
-      $slider.slider("option", "max", 3);
-    } else {
-      $slider.slider("option", "max", 10);
+    // --- SASSOCORVARO (TILED) => pointclouds/sassocorvaro/tiles/tile_1/metadata.json ...
+    const SASSOCORVARO = {
+      base: "./pointclouds/sassocorvaro/tiles",
+      tiles: 20,
+      pcs: [],
+      visible: false     // busto visibile di default
+    };
+
+    // --- BUSTO (SINGLE) => pointclouds/busto/metadata.json
+    const BUSTO = {
+      path: "./pointclouds/busto/metadata.json",
+      pc: null,
+      visible: true      // busto attivo/visibile di default
+    };
+
+    let didInitBustoUI = false;
+    let didInitSassocorvaroUI = false;
+
+    // 1) BUSTO first (visible by default)
+    Potree.loadPointCloud(
+      BUSTO.path,
+      "busto_alta_def",
+      e => {
+        const pc = e.pointcloud;
+        const mat = applyMaterialDefaults(pc, "busto");
+
+        pc.visible = BUSTO.visible;
+        viewer.scene.addPointCloud(pc);
+        BUSTO.pc = pc;
+
+        // Fit and create Busto slider once
+        if (!didInitBustoUI){
+          didInitBustoUI = true;
+          viewer.fitToScreen();
+
+          addPointSizeSliderForGroup({
+            id: "ap_pointsize_busto",
+            title: "Point size (Busto)",
+            materialsRef: MATERIALS.busto,
+            initialMaterial: mat
+          });
+        }
+      }
+    );
+
+    // 2) Sassocorvaro tiles (background, hidden by default)
+    for (let i = 1; i <= SASSOCORVARO.tiles; i++){
+      const name = `sassocorvaro_tile_${i}`;
+      const path = `${SASSOCORVARO.base}/tile_${i}/metadata.json`;
+
+      Potree.loadPointCloud(path, name, e => {
+        const pc = e.pointcloud;
+        const mat = applyMaterialDefaults(pc, "sassocorvaro");
+
+        pc.visible = SASSOCORVARO.visible;
+        viewer.scene.addPointCloud(pc);
+        SASSOCORVARO.pcs.push(pc);
+
+        // Create Sassocorvaro slider once (when first tile arrives)
+        if (!didInitSassocorvaroUI){
+          didInitSassocorvaroUI = true;
+
+          addPointSizeSliderForGroup({
+            id: "ap_pointsize_sassocorvaro",
+            title: "Point size (Sassocorvaro)",
+            materialsRef: MATERIALS.sassocorvaro,
+            initialMaterial: mat
+          });
+        }
+      });
     }
-  }
 
-  applyMode(typeToValue(initialMaterial.pointSizeType));
+    // =====================
+    // VISIBILITY HELPERS (console)
+    // =====================
+    window.showSassocorvaro = () => {
+      SASSOCORVARO.pcs.forEach(pc => pc.visible = true);
+      if (BUSTO.pc) BUSTO.pc.visible = false;
+    };
 
-  $("#ap_pointsize_type").on("change", function(){
-    applyMode($(this).val());
-  });
-}
+    window.showBusto = () => {
+      SASSOCORVARO.pcs.forEach(pc => pc.visible = false);
+      if (BUSTO.pc) BUSTO.pc.visible = true;
+    };
 
-// =====================
-// MATERIAL DEFAULTS
-// =====================
-function applyMaterialDefaults(pc){
-  const mat = pc.material;
-  mat.activeAttributeName = "rgba";
-  mat.size = 2.0;
-  mat.minSize = 2;
-  mat.pointSizeType = Potree.PointSizeType.FIXED;
-  ALL_MATERIALS.push(mat);
-  return mat;
-}
+    window.showBoth = () => {
+      SASSOCORVARO.pcs.forEach(pc => pc.visible = true);
+      if (BUSTO.pc) BUSTO.pc.visible = true;
+    };
 
-// =====================
-// LOAD POINT CLOUDS
-// =====================
-
-// --- SASSOCORVARO (20 TILES)
-const SASSOCORVARO = {
-  base: "./pointclouds/sassocorvaro",
-  tiles: 20,
-  pcs: [],
-  visible: true
-};
-
-// --- BUSTO ALTA DEFINIZIONE (SINGLE)
-const BUSTO = {
-  path: "./pointclouds/busto/metadata.json",
-  pc: null,
-  visible: false
-};
-
-let didInitUI = false;
-
-// ---- load tiled cloud
-for (let i = 1; i <= SASSOCORVARO.tiles; i++){
-  const name = `sassocorvaro_tile_${i}`;
-  const path = `${SASSOCORVARO.base}/tile_${i}/metadata.json`;
-
-  Potree.loadPointCloud(path, name, e => {
-    const pc = e.pointcloud;
-    const mat = applyMaterialDefaults(pc);
-
-    pc.visible = SASSOCORVARO.visible;
-    viewer.scene.addPointCloud(pc);
-    SASSOCORVARO.pcs.push(pc);
-
-    if (!didInitUI){
-      didInitUI = true;
-      viewer.fitToScreen();
-      addPointSizeSliderToAppearance(mat);
-    }
-  });
-}
-
-// ---- load busto (single cloud)
-Potree.loadPointCloud(
-  BUSTO.path,
-  "busto_alta_def",
-  e => {
-    const pc = e.pointcloud;
-    applyMaterialDefaults(pc);
-    pc.visible = BUSTO.visible;
-    viewer.scene.addPointCloud(pc);
-    BUSTO.pc = pc;
-  }
-);
-
-// =====================
-// VISIBILITY HELPERS (console)
-// =====================
-window.showSassocorvaro = () => {
-  SASSOCORVARO.pcs.forEach(pc => pc.visible = true);
-  if (BUSTO.pc) BUSTO.pc.visible = false;
-};
-
-window.showBusto = () => {
-  SASSOCORVARO.pcs.forEach(pc => pc.visible = false);
-  if (BUSTO.pc) BUSTO.pc.visible = true;
-};
-
-window.showBoth = () => {
-  SASSOCORVARO.pcs.forEach(pc => pc.visible = true);
-  if (BUSTO.pc) BUSTO.pc.visible = true;
-};
-
-</script>
+  </script>
 
 </body>
 </html>
