@@ -51,14 +51,14 @@
     // =====================
     window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
 
-    // Force EDL OFF during initial load
+    // EDL: keep OFF by default (user can toggle via GUI checkbox)
     viewer.setEDLEnabled(false);
 
     viewer.setFOV(60);
     viewer.setPointBudget(10_000_000);
     viewer.loadSettingsFromURL();
 
-    // loadSettingsFromURL() / GUI can re-apply EDL -> force OFF again until all clouds loaded
+    // loadSettingsFromURL may re-enable EDL via URL params -> force OFF again
     viewer.setEDLEnabled(false);
 
     viewer.setDescription("ROCCA UBALDINESCA");
@@ -77,13 +77,11 @@
       viewer.setMinNodeSize(0);
     }
 
-    // NOTE: removed viewer.setLanguage(...) because you reported language switching is frozen.
-    // Keeping GUI load and Appearance panel opening.
+    // GUI
     viewer.loadGUI(() => {
       $("#menu_appearance").next().show();
-
-      // GUI may restore settings; keep EDL OFF until everything is loaded
-      if (!allCloudsLoaded()) viewer.setEDLEnabled(false);
+      // GUI may restore settings -> keep EDL OFF by default
+      viewer.setEDLEnabled(false);
     });
 
     // =====================
@@ -105,15 +103,23 @@
     };
 
     // =====================
+    // DEFAULT MATERIAL SETTINGS (used to restore)
+    // =====================
+    const DEFAULTS = {
+      rocca: { size: 2.0, minSize: 2.0, type: Potree.PointSizeType.FIXED },
+      busto: { size: 2.0, minSize: 2.0, type: Potree.PointSizeType.FIXED }
+    };
+
+    // =====================
     // MATERIAL DEFAULTS (keeps native Potree UI options)
     // =====================
     function applyMaterialDefaults(pc, materialsArr){
       const mat = pc.material;
 
       mat.activeAttributeName = "rgba";
-      mat.size = 2.0;
-      mat.minSize = 2;
-      mat.pointSizeType = Potree.PointSizeType.FIXED;
+      mat.size = DEFAULTS.rocca.size;
+      mat.minSize = DEFAULTS.rocca.minSize;
+      mat.pointSizeType = DEFAULTS.rocca.type;
 
       materialsArr.push(mat);
       return mat;
@@ -174,7 +180,6 @@
         </div>
       `);
 
-      // put blocks near top of Appearance without removing anything else
       const $firstBlock = $appearancePanel.find(".pv-menu-list").first();
       $firstBlock.after(block);
 
@@ -227,42 +232,23 @@
     }
 
     // =====================
-    // INITIAL FIT + EDL enable only after ALL clouds loaded
+    // INITIAL FIT
     // =====================
     let bustoLoaded = false;
     let tilesLoaded = 0;
 
     let fitQuickDone = false;
     let fitFinalDone = false;
-    let edlEnabledAfterLoad = false;
-
-    function allCloudsLoaded(){
-      return bustoLoaded && tilesLoaded >= SASSOCORVARO.tiles;
-    }
-
-    function tryEnableEDLAfterLoad(){
-      if (edlEnabledAfterLoad) return;
-      if (!allCloudsLoaded()) return;
-
-      edlEnabledAfterLoad = true;
-      viewer.setEDLEnabled(true);
-    }
 
     function tryInitialFit(){
-      // quick fit when busto + at least one tile are present
       if (!fitQuickDone && bustoLoaded && tilesLoaded >= 1) {
         fitQuickDone = true;
         viewer.fitToScreen();
       }
-
-      // final fit when everything is loaded
-      if (!fitFinalDone && allCloudsLoaded()) {
+      if (!fitFinalDone && bustoLoaded && tilesLoaded >= SASSOCORVARO.tiles) {
         fitFinalDone = true;
         viewer.fitToScreen();
       }
-
-      // Enable EDL only after all clouds are loaded (one-time)
-      tryEnableEDLAfterLoad();
     }
 
     // =====================
@@ -275,7 +261,6 @@
 
     function applyQuality(q){
       viewer.setPointBudget(q.pointBudget);
-      // IMPORTANT: do NOT set EDL here. If user turns EDL off, it stays off.
     }
 
     if (viewer.controls && typeof viewer.controls.addEventListener === "function") {
@@ -295,7 +280,15 @@
       BUSTO_LABEL,
       e => {
         const pc = e.pointcloud;
-        const mat = applyMaterialDefaults(pc, BUSTO.materials);
+
+        // busto defaults (same as rocca defaults right now, but kept separate)
+        const mat = pc.material;
+        mat.activeAttributeName = "rgba";
+        mat.size = DEFAULTS.busto.size;
+        mat.minSize = DEFAULTS.busto.minSize;
+        mat.pointSizeType = DEFAULTS.busto.type;
+
+        BUSTO.materials.push(mat);
 
         pc.visible = BUSTO.visible;
         viewer.scene.addPointCloud(pc);
@@ -316,9 +309,7 @@
       }
     );
 
-    // =====================
-    // TILE BATCH LOADER (3 at a time)
-    // =====================
+    // --- TILES (batch)
     async function loadSassocorvaroTilesWithLimit(limit = 3){
       let i = 1;
 
@@ -362,8 +353,116 @@
       await Promise.all(workers);
     }
 
-    // delay tiles a bit to get the page responsive faster
     setTimeout(() => loadSassocorvaroTilesWithLimit(3), 1500);
+
+    // =====================
+    // ANNOTATION + VIEW-DEPENDENT SETTINGS
+    // =====================
+
+    // Saved camera view
+    const SAVED_POS = new THREE.Vector3(298467.998, 4850598.932, 331.274);
+    const SAVED_TGT = new THREE.Vector3(298465.905, 4850599.114, 330.926);
+
+    // Threshold to restore defaults
+    const RESTORE_DISTANCE_M = 5.0;
+
+    // Track whether "special view settings" are currently applied
+    let specialViewActive = false;
+
+    function setRoccaSpecial(){
+      SASSOCORVARO.materials.forEach(m => {
+        m.size = 10.0;
+        m.minSize = 10.0;
+        m.pointSizeType = Potree.PointSizeType.FIXED;
+      });
+
+      // sync UI (if present)
+      try {
+        $("#ap_pointsize_sassocorvaro_slider").slider("value", 10.0);
+        $("#ap_pointsize_sassocorvaro_val").text("10.0");
+        $("#ap_pointsize_sassocorvaro_type").val("FIXED");
+      } catch (_) {}
+    }
+
+    function setBustoSpecial(){
+      BUSTO.materials.forEach(m => {
+        m.size = 0.7;
+        m.minSize = 0.7;
+        m.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+      });
+
+      // sync UI (if present)
+      try {
+        $("#ap_pointsize_busto_slider").slider("value", 0.7);
+        $("#ap_pointsize_busto_val").text("0.7");
+        $("#ap_pointsize_busto_type").val("ADAPTIVE");
+      } catch (_) {}
+    }
+
+    function restoreDefaults(){
+      SASSOCORVARO.materials.forEach(m => {
+        m.size = DEFAULTS.rocca.size;
+        m.minSize = DEFAULTS.rocca.minSize;
+        m.pointSizeType = DEFAULTS.rocca.type;
+      });
+
+      BUSTO.materials.forEach(m => {
+        m.size = DEFAULTS.busto.size;
+        m.minSize = DEFAULTS.busto.minSize;
+        m.pointSizeType = DEFAULTS.busto.type;
+      });
+
+      // sync UI (if present)
+      try {
+        $("#ap_pointsize_sassocorvaro_slider").slider("value", DEFAULTS.rocca.size);
+        $("#ap_pointsize_sassocorvaro_val").text(DEFAULTS.rocca.size.toFixed(1));
+        $("#ap_pointsize_sassocorvaro_type").val("FIXED");
+
+        $("#ap_pointsize_busto_slider").slider("value", DEFAULTS.busto.size);
+        $("#ap_pointsize_busto_val").text(DEFAULTS.busto.size.toFixed(1));
+        $("#ap_pointsize_busto_type").val("FIXED");
+      } catch (_) {}
+    }
+
+    function goToSavedView(){
+      viewer.scene.view.position.copy(SAVED_POS);
+      viewer.scene.view.lookAt(SAVED_TGT);
+
+      setRoccaSpecial();
+      setBustoSpecial();
+      specialViewActive = true;
+
+      viewer.render();
+    }
+
+    // Clickable annotation
+    const ann = new Potree.Annotation({
+      title: BUSTO_LABEL,
+      position: SAVED_TGT.clone(),
+      description: `
+        <div style="line-height:1.35">
+          <b>${BUSTO_LABEL}</b><br/>
+          Clicca per andare al punto di vista.
+        </div>
+      `
+    });
+
+    viewer.scene.annotations.add(ann);
+    ann.addEventListener("click", () => goToSavedView());
+
+    // Monitor distance from saved target; if user moves away > 5m, restore defaults
+    // (lightweight polling, no impact on rendering)
+    setInterval(() => {
+      if (!specialViewActive) return;
+
+      const camPos = viewer.scene.view.position;
+      const d = camPos.distanceTo(SAVED_TGT);
+
+      if (d > RESTORE_DISTANCE_M) {
+        restoreDefaults();
+        specialViewActive = false;
+      }
+    }, 500);
 
     // =====================
     // Optional helpers
