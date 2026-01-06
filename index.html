@@ -47,11 +47,28 @@
     // =====================
     window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
 
-    viewer.setEDLEnabled(true);
+    // Startup performance: EDL off, then on after a few seconds
+    viewer.setEDLEnabled(false);
+    setTimeout(() => viewer.setEDLEnabled(true), 4000);
+
     viewer.setFOV(60);
     viewer.setPointBudget(10_000_000);
     viewer.loadSettingsFromURL();
     viewer.setDescription("ROCCA UBALDINESCA");
+
+    // Throttle streaming during navigation (if supported by this Potree build)
+    if (typeof viewer.setMaxNodesLoading === "function") {
+      viewer.setMaxNodesLoading(2);
+    } else if (viewer.maxNodesLoading !== undefined) {
+      viewer.maxNodesLoading = 2;
+    } else if (Potree.maxNodesLoading !== undefined) {
+      Potree.maxNodesLoading = 2;
+    }
+
+    // Conservative LOD (optional, helps stability on GitHub Pages)
+    if (typeof viewer.setMinNodeSize === "function") {
+      viewer.setMinNodeSize(80);
+    }
 
     viewer.loadGUI(() => {
       viewer.setLanguage("en");
@@ -78,7 +95,7 @@
     };
 
     // =====================
-    // MATERIAL DEFAULTS (non elimina properties nativi Potree)
+    // MATERIAL DEFAULTS (non elimina controls nativi Potree)
     // =====================
     function applyMaterialDefaults(pc, materialsArr){
       const mat = pc.material;
@@ -104,6 +121,7 @@
         return;
       }
 
+      // remove only our custom block (do NOT touch native Potree controls)
       $(`#${id}`).remove();
 
       const typeToValue = t =>
@@ -146,6 +164,7 @@
         </div>
       `);
 
+      // put blocks near top of Appearance without removing anything else
       const $firstBlock = $appearancePanel.find(".pv-menu-list").first();
       $firstBlock.after(block);
 
@@ -263,19 +282,48 @@
     }
 
     // =====================
-    // INITIAL FIT: aspetta che siano caricati TUTTI i tiles + busto
+    // INITIAL FIT (fast + final)
     // =====================
-    let initialFitDone = false;
-    let tilesLoaded = 0;
     let bustoLoaded = false;
+    let tilesLoaded = 0;
+
+    let fitQuickDone = false;
+    let fitFinalDone = false;
 
     function tryInitialFit(){
-      if (initialFitDone) return;
-
-      if (tilesLoaded >= SASSOCORVARO.tiles && bustoLoaded) {
-        initialFitDone = true;
+      // quick fit when busto + at least one tile are present
+      if (!fitQuickDone && bustoLoaded && tilesLoaded >= 1) {
+        fitQuickDone = true;
         viewer.fitToScreen();
       }
+
+      // final fit when everything is loaded
+      if (!fitFinalDone && bustoLoaded && tilesLoaded >= SASSOCORVARO.tiles) {
+        fitFinalDone = true;
+        viewer.fitToScreen();
+      }
+    }
+
+    // =====================
+    // DYNAMIC QUALITY WHILE NAVIGATING (optional but recommended)
+    // =====================
+    const QUALITY = {
+      moving: { pointBudget: 2_500_000, edl: false },
+      still:  { pointBudget: 10_000_000, edl: true  }
+    };
+
+    function applyQuality(q){
+      viewer.setPointBudget(q.pointBudget);
+      viewer.setEDLEnabled(q.edl);
+    }
+
+    // after the initial startup phase, allow dynamic quality.
+    // (EDL is already turned on after 4s; we keep this for movement handling)
+    setTimeout(() => applyQuality(QUALITY.still), 4200);
+
+    if (viewer.controls && typeof viewer.controls.addEventListener === "function") {
+      viewer.controls.addEventListener("start", () => applyQuality(QUALITY.moving));
+      viewer.controls.addEventListener("end",   () => applyQuality(QUALITY.still));
     }
 
     // =====================
@@ -284,7 +332,7 @@
     let didInitBustoSlider = false;
     let didInitSassoSlider = false;
 
-    // --- BUSTO
+    // --- BUSTO (single)
     Potree.loadPointCloud(
       BUSTO.path,
       "busto_alta_def",
@@ -300,7 +348,7 @@
           didInitBustoSlider = true;
           addPointSizeSliderForGroup({
             id: "ap_pointsize_busto",
-            title: "Point size (Busto)",
+            title: "Point size (Busto di Francesco di Giorgio Martini)",
             materialsRef: BUSTO.materials,
             initialMaterial: mat
           });
@@ -312,34 +360,56 @@
       }
     );
 
-    // --- SASSOCORVARO tiles
-    for (let i = 1; i <= SASSOCORVARO.tiles; i++){
-      const name = `sassocorvaro_tile_${i}`;
-      const path = `${SASSOCORVARO.base}/tile_${i}/metadata.json`;
+    // =====================
+    // TILE BATCH LOADER (3 at a time)
+    // =====================
+    async function loadSassocorvaroTilesWithLimit(limit = 3){
+      let i = 1;
 
-      Potree.loadPointCloud(path, name, e => {
-        const pc = e.pointcloud;
-        const mat = applyMaterialDefaults(pc, SASSOCORVARO.materials);
+      async function loadOne(idx){
+        return new Promise(resolve => {
+          const name = `sassocorvaro_tile_${idx}`;
+          const path = `${SASSOCORVARO.base}/tile_${idx}/metadata.json`;
 
-        pc.visible = SASSOCORVARO.visible;
-        viewer.scene.addPointCloud(pc);
-        SASSOCORVARO.pcs.push(pc);
+          Potree.loadPointCloud(path, name, e => {
+            const pc = e.pointcloud;
+            const mat = applyMaterialDefaults(pc, SASSOCORVARO.materials);
 
-        if (!didInitSassoSlider) {
-          didInitSassoSlider = true;
-          addPointSizeSliderForGroup({
-            id: "ap_pointsize_sassocorvaro",
-            title: "Point size (Rocca Ubaldinesca)",
-            materialsRef: SASSOCORVARO.materials,
-            initialMaterial: mat
+            pc.visible = SASSOCORVARO.visible;
+            viewer.scene.addPointCloud(pc);
+            SASSOCORVARO.pcs.push(pc);
+
+            if (!didInitSassoSlider) {
+              didInitSassoSlider = true;
+              addPointSizeSliderForGroup({
+                id: "ap_pointsize_sassocorvaro",
+                title: "Point size (Rocca Ubaldinesca)",
+                materialsRef: SASSOCORVARO.materials,
+                initialMaterial: mat
+              });
+            }
+
+            tilesLoaded++;
+            tryInitialFit();
+            groupPointCloudsInTree();
+
+            resolve();
           });
-        }
+        });
+      }
 
-        tilesLoaded++;
-        tryInitialFit();
-        groupPointCloudsInTree();
+      const workers = new Array(limit).fill(null).map(async () => {
+        while (i <= SASSOCORVARO.tiles){
+          const idx = i++;
+          await loadOne(idx);
+        }
       });
+
+      await Promise.all(workers);
     }
+
+    // delay tiles a bit to get the page responsive faster
+    setTimeout(() => loadSassocorvaroTilesWithLimit(3), 1500);
 
     // =====================
     // Optional helpers
