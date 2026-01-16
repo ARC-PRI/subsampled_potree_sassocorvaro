@@ -241,6 +241,9 @@
     let fitFinalDone = false;
 
     function tryInitialFit(){
+      // If user activated a "special view", do not overwrite it with fitToScreen
+      if (specialViewActive) return;
+
       if (!fitQuickDone && bustoLoaded && tilesLoaded >= 1) {
         fitQuickDone = true;
         viewer.fitToScreen();
@@ -359,9 +362,9 @@
     // ANNOTATION + VIEW-DEPENDENT SETTINGS
     // =====================
 
-    // Saved camera view
-    const SAVED_POS = new THREE.Vector3(298467.998, 4850598.932, 331.274);
-    const SAVED_TGT = new THREE.Vector3(298465.905, 4850599.114, 330.926);
+    // Saved camera view (UPDATED with your values)
+    const SAVED_POS = new THREE.Vector3(298466.300, 4850599.934, 331.354);
+    const SAVED_TGT = new THREE.Vector3(298465.887, 4850599.271, 331.059);
 
     // Threshold to restore defaults
     const RESTORE_DISTANCE_M = 5.0;
@@ -425,6 +428,10 @@
     }
 
     function goToSavedView(){
+      // IMPORTANT: prevent late fitToScreen() calls from overwriting the user-selected view
+      fitQuickDone = true;
+      fitFinalDone = true;
+
       viewer.scene.view.position.copy(SAVED_POS);
       viewer.scene.view.lookAt(SAVED_TGT);
 
@@ -448,7 +455,11 @@
     });
 
     viewer.scene.annotations.add(ann);
-    ann.addEventListener("click", () => goToSavedView());
+
+    // Robust handlers across Potree builds
+    ann.addEventListener("select", () => goToSavedView());
+    ann.addEventListener("click",  () => goToSavedView());
+    ann.onClick = () => goToSavedView();
 
     // Monitor distance from saved target; if user moves away > 5m, restore defaults
     // (lightweight polling, no impact on rendering)
